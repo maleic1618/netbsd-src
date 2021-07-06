@@ -201,6 +201,7 @@ struct ena_stats_tx {
 	struct evcnt bad_req_id;
 	struct evcnt collapse;
 	struct evcnt collapse_err;
+	struct evcnt pcq_drops;
 };
 
 struct ena_stats_rx {

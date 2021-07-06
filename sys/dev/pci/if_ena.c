@@ -435,10 +435,11 @@ ena_alloc_counters_tx(struct ena_adapter *adapter, struct ena_stats_tx *st, int 
 	EVCNT_INIT(st, bad_req_id);
 	EVCNT_INIT(st, collapse);
 	EVCNT_INIT(st, collapse_err);
+	EVCNT_INIT(st, pcq_drops);
 
 	/* Make sure all code is updated when new fields added */
-	CTASSERT(offsetof(struct ena_stats_tx, collapse_err)
-	    + sizeof(st->collapse_err) == sizeof(*st));
+	CTASSERT(offsetof(struct ena_stats_tx, pcq_drops)
+	    + sizeof(st->pcq_drops) == sizeof(*st));
 }
 
 static inline void
@@ -2992,6 +2993,7 @@ ena_mq_start(struct ifnet *ifp, struct mbuf *m)
 	is_drbr_empty = drbr_empty(ifp, tx_ring->br);
 	ret = drbr_enqueue(ifp, tx_ring->br, m);
 	if (unlikely(ret != 0)) {
+		counter_u64_add(tx_ring->tx_stats.pcq_drops, 1);
 		if (atomic_cas_uint(&tx_ring->task_pending, 0, 1) == 0)
 			workqueue_enqueue(tx_ring->enqueue_tq, &tx_ring->enqueue_task,
 			    curcpu());
