@@ -37,6 +37,7 @@
 #define ENA_H
 
 #include <sys/types.h>
+#include <sys/pcq.h>
 
 #include "external/bsd/ena-com/ena_com.h"
 #include "external/bsd/ena-com/ena_eth_com.h"
@@ -258,7 +259,7 @@ struct ena_ring {
 	};
 	int ring_size; /* number of tx/rx_buffer_info's entries */
 
-	struct buf_ring *br; /* only for TX */
+	pcq_t *br; /* only for TX */
 
 	kmutex_t ring_mtx;
 	char mtx_name[16];
