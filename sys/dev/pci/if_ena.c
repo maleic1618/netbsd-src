@@ -1557,16 +1557,14 @@ ena_rx_mbuf(struct ena_ring *rx_ring, struct ena_com_rx_buf_info *ena_bufs,
 
 	ntc = *next_to_clean;
 	adapter = rx_ring->adapter;
-	rx_info = &rx_ring->rx_buffer_info[ntc];
-
-	if (unlikely(rx_info->mbuf == NULL)) {
-		device_printf(adapter->pdev, "NULL mbuf in rx_info");
-		return (NULL);
-	}
 
 	len = ena_bufs[buf].len;
 	req_id = ena_bufs[buf].req_id;
 	rx_info = &rx_ring->rx_buffer_info[req_id];
+	if (unlikely(rx_info->mbuf == NULL)) {
+		device_printf(adapter->pdev, "NULL mbuf in rx_info");
+		return (NULL);
+	}
 
 	ena_trace(ENA_DBG | ENA_RXPTH, "rx_info %p, mbuf %p, paddr %jx",
 	    rx_info, rx_info->mbuf, (uintmax_t)rx_info->ena_buf.paddr);
