@@ -1768,6 +1768,7 @@ ena_rx_cleanup(struct ena_ring *rx_ring)
 				    rx_ring->ring_size);
 
 			}
+			if_statinc(ifp, if_ierrors);
 			break;
 		}
 
@@ -2889,6 +2890,7 @@ ena_start_xmit(struct ena_ring *tx_ring)
 	int ena_qid;
 	int acum_pkts = 0;
 	int ret = 0;
+	net_stat_ref_t nsr;
 
 	KASSERT(ENA_RING_MTX_OWNED(tx_ring));
 
@@ -2901,6 +2903,8 @@ ena_start_xmit(struct ena_ring *tx_ring)
 	ena_qid = ENA_IO_TXQ_IDX(tx_ring->que->id);
 	io_sq = &adapter->ena_dev->io_sq_queues[ena_qid];
 
+	nsr = IF_STAT_GETREF(adapter->ifp);
+
 	while ((mbuf = drbr_peek(adapter->ifp, tx_ring->br)) != NULL) {
 		ena_trace(ENA_DBG | ENA_TXPTH, "\ndequeued mbuf %p with flags %#x and"
 		    " header csum flags %#jx",
@@ -2910,7 +2914,13 @@ ena_start_xmit(struct ena_ring *tx_ring)
 		    ENA_TX_CLEANUP_THRESHOLD)))
 			ena_tx_cleanup(tx_ring);
 
-		if (unlikely((ret = ena_xmit_mbuf(tx_ring, &mbuf)) != 0)) {
+		if (likely((ret = ena_xmit_mbuf(tx_ring, &mbuf)) == 0)) {
+			if_statinc_ref(nsr, if_opackets);
+			if_statadd_ref(nsr, if_obytes, mbuf->m_pkthdr.len);
+			if (ISSET(mbuf->m_flags, M_MCAST))
+				if_statinc_ref(nsr, if_omcasts);
+		} else {
+			if_statinc_ref(nsr, if_oerrors);
 			if (ret == ENA_COM_NO_MEM) {
 				drbr_putback(adapter->ifp, tx_ring->br, mbuf);
 			} else if (ret == ENA_COM_NO_SPACE) {
@@ -2926,8 +2936,10 @@ ena_start_xmit(struct ena_ring *tx_ring)
 		drbr_advance(adapter->ifp, tx_ring->br);
 
 		if (unlikely((if_getdrvflags(adapter->ifp) &
-		    IFF_RUNNING) == 0))
+		    IFF_RUNNING) == 0)) {
+			IF_STAT_PUTREF(adapter->ifp);
 			return;
+		}
 
 		acum_pkts++;
 
@@ -2946,6 +2958,8 @@ ena_start_xmit(struct ena_ring *tx_ring)
 		}
 
 	}
+
+	IF_STAT_PUTREF(adapter->ifp);
 
 	if (likely(acum_pkts != 0)) {
 		wmb();
@@ -3375,6 +3389,7 @@ static void ena_keep_alive_wd(void *adapter_data,
 	rx_drops = ((uint64_t)desc->rx_drops_high << 32) | desc->rx_drops_low;
 	counter_u64_zero(adapter->hw_stats.rx_drops);
 	counter_u64_add(adapter->hw_stats.rx_drops, rx_drops);
+	if_statadd(adapter->ifp, if_iqdrops, rx_drops);
 
 	atomic_store_release(&adapter->keep_alive_timestamp, getsbinuptime());
 }
