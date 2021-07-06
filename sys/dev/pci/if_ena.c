@@ -2092,8 +2092,8 @@ err:
 	for (i--; i >= 0; i--) {
 		int irq_slot __diagused = i + irq_off;
 		KASSERT(adapter->sc_ihs[irq_slot] != NULL);
-		pci_intr_disestablish(adapter->sc_pa.pa_pc, adapter->sc_ihs[i]);
-		adapter->sc_ihs[i] = NULL;
+		pci_intr_disestablish(adapter->sc_pa.pa_pc, adapter->sc_ihs[irq_slot]);
+		adapter->sc_ihs[irq_slot] = NULL;
 	}
 
 	return ENOSPC;
@@ -2121,8 +2121,8 @@ ena_free_io_irq(struct ena_adapter *adapter)
 
 		if (adapter->sc_ihs[irq_slot]) {
 			pci_intr_disestablish(adapter->sc_pa.pa_pc,
-			    adapter->sc_ihs[i]);
-			adapter->sc_ihs[i] = NULL;
+			    adapter->sc_ihs[irq_slot]);
+			adapter->sc_ihs[irq_slot] = NULL;
 		}
 	}
 }
