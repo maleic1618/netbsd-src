@@ -714,9 +714,7 @@ ena_setup_tx_resources(struct ena_adapter *adapter, int qid)
 	tx_ring->next_to_use = 0;
 	tx_ring->next_to_clean = 0;
 
-	ENA_RING_MTX_LOCK(tx_ring);
 	tx_ring->br = pcq_create(ENA_DEFAULT_RING_SIZE, KM_SLEEP);
-	ENA_RING_MTX_UNLOCK(tx_ring);
 
 	/* ... and create the buffer DMA maps */
 	for (i = 0; i < tx_ring->ring_size; i++) {
@@ -786,7 +784,6 @@ ena_free_tx_resources(struct ena_adapter *adapter, int qid)
 	workqueue_destroy(tx_ring->enqueue_tq);
 	tx_ring->enqueue_tq = NULL;
 
-	ENA_RING_MTX_LOCK(tx_ring);
 	/* Flush buffer ring, */
 	while ((m = pcq_get(tx_ring->br)) != NULL)
 		m_freem(m);
@@ -802,7 +799,6 @@ ena_free_tx_resources(struct ena_adapter *adapter, int qid)
 		bus_dmamap_destroy(adapter->sc_dmat,
 		    tx_ring->tx_buffer_info[i].map);
 	}
-	ENA_RING_MTX_UNLOCK(tx_ring);
 
 	/* And free allocated memory. */
 	free(tx_ring->tx_buffer_info, M_DEVBUF);
@@ -1253,7 +1249,6 @@ ena_free_tx_bufs(struct ena_adapter *adapter, unsigned int qid)
 	bool print_once = true;
 	struct ena_ring *tx_ring = &adapter->tx_ring[qid];
 
-	ENA_RING_MTX_LOCK(tx_ring);
 	for (int i = 0; i < tx_ring->ring_size; i++) {
 		struct ena_tx_buffer *tx_info = &tx_ring->tx_buffer_info[i];
 
@@ -1275,7 +1270,6 @@ ena_free_tx_bufs(struct ena_adapter *adapter, unsigned int qid)
 		m_free(tx_info->mbuf);
 		tx_info->mbuf = NULL;
 	}
-	ENA_RING_MTX_UNLOCK(tx_ring);
 }
 
 static void
