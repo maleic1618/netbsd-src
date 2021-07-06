@@ -3899,16 +3899,16 @@ ena_detach(device_t pdev, int flags)
 		return (EBUSY);
 	}
 
+	rw_enter(&adapter->ioctl_sx, RW_WRITER);
+	ena_down(adapter);
+	rw_exit(&adapter->ioctl_sx);
+
 	/* Free reset task and callout */
 	callout_halt(&adapter->timer_service, NULL);
 	callout_destroy(&adapter->timer_service);
 	workqueue_wait(adapter->reset_tq, &adapter->reset_task);
 	workqueue_destroy(adapter->reset_tq);
 	adapter->reset_tq = NULL;
-
-	rw_enter(&adapter->ioctl_sx, RW_WRITER);
-	ena_down(adapter);
-	rw_exit(&adapter->ioctl_sx);
 
 	if (adapter->ifp != NULL) {
 		ether_ifdetach(adapter->ifp);
