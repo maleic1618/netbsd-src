@@ -2353,7 +2353,6 @@ ena_media_status(struct ifnet *ifp, struct ifmediareq *ifmr)
 	}
 
 	ifmr->ifm_status |= IFM_ACTIVE;
-	ifmr->ifm_active |= IFM_10G_T | IFM_FDX;
 
 	mutex_exit(&adapter->global_mtx);
 }
