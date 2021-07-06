@@ -218,6 +218,22 @@ struct ena_stats_rx {
 	struct evcnt empty_rx_ring;
 };
 
+/*
+ * Locking notes:
+ * + For TX, a field in ena_ring is protected by ring_mtx (a spin mutex).
+ *   - protect them only when I/F is up.
+ *   - when I/F is down or attaching, detaching, no need to protect them.
+ * + For RX, any field in ena_ring is not protected.
+ *   - all RX process is done in workqueue context, one CPU per one queue.
+ * + a fields in ena_adapter is protected by global_mtx (a adaptive mutex).
+ *
+ * + a field marked "stable" is unlocked.
+ * + a field marked "atomic" is unlocked,
+ *   but must use atomic ops to read/write.
+ *
+ * Lock order:
+ * + global_mtx -> ring_mtx
+ */
 struct ena_ring {
 	/* Holds the empty requests for TX/RX out of order completions */
 	union {
@@ -274,7 +290,7 @@ struct ena_ring {
 			struct workqueue *cmpl_tq;
 		};
 	};
-	u_int task_pending;
+	u_int task_pending; /* atomic */
 
 	union {
 		struct ena_stats_tx tx_stats;
@@ -352,13 +368,13 @@ struct ena_adapter {
 	/* mdio and phy*/
 
 	bool link_status;
-	bool trigger_reset;
+	bool trigger_reset; /* atomic */
 	bool up;
 	bool running;
 
 	/* Queue will represent one TX and one RX ring */
 	struct ena_que que[ENA_MAX_NUM_IO_QUEUES]
-	    __aligned(CACHE_LINE_SIZE);
+	    __aligned(CACHE_LINE_SIZE); /* stable */
 
 	/* TX */
 	struct ena_ring tx_ring[ENA_MAX_NUM_IO_QUEUES]
