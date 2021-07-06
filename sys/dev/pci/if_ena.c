@@ -2516,6 +2516,7 @@ ena_setup_ifnet(device_t pdev, struct ena_adapter *adapter,
 		ena_trace(ENA_ALERT, "can not allocate ifnet structure\n");
 		return (ENXIO);
 	}
+	if_initialize(ifp);
 	if_initname(ifp, "ena", device_unit(pdev));
 	if_setdev(ifp, pdev);
 	if_setsoftc(ifp, adapter);
@@ -2566,10 +2567,10 @@ ena_setup_ifnet(device_t pdev, struct ena_adapter *adapter,
 	ifmedia_add(&adapter->media, IFM_ETHER | IFM_AUTO, 0, NULL);
 	ifmedia_set(&adapter->media, IFM_ETHER | IFM_AUTO);
 
-	if_attach(ifp);
+	ifp->if_percpuq = if_percpuq_create(ifp);
 	if_deferred_start_init(ifp, NULL);
-
 	ether_ifattach(ifp, adapter->mac_addr);
+	if_register(ifp);
 
 	return (0);
 }
