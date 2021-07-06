@@ -1282,6 +1282,7 @@ validate_tx_req_id(struct ena_ring *tx_ring, uint16_t req_id)
 {
 	struct ena_adapter *adapter = tx_ring->adapter;
 	struct ena_tx_buffer *tx_info = NULL;
+	KASSERT(ENA_RING_MTX_OWNED(tx_ring));
 
 	if (likely(req_id < tx_ring->ring_size)) {
 		tx_info = &tx_ring->tx_buffer_info[req_id];
@@ -1404,6 +1405,8 @@ ena_tx_cleanup(struct ena_ring *tx_ring)
 	int commit = TX_COMMIT;
 	int budget = TX_BUDGET;
 	int work_done;
+
+	KASSERT(ENA_RING_MTX_OWNED(tx_ring));
 
 	adapter = tx_ring->que->adapter;
 	ena_qid = ENA_IO_TXQ_IDX(tx_ring->que->id);
@@ -1720,6 +1723,8 @@ ena_rx_cleanup(struct ena_ring *rx_ring)
 	unsigned int qid;
 	int rc, i;
 	int budget = RX_BUDGET;
+
+	KASSERT(ENA_RING_MTX_OWNED(rx_ring));
 
 	adapter = rx_ring->que->adapter;
 	ifp = adapter->ifp;
@@ -2214,6 +2219,8 @@ ena_up(struct ena_adapter *adapter)
 {
 	int rc = 0;
 
+	KASSERT(rw_write_held(&adapter->ioctl_sx));
+
 #if 0
 	if (unlikely(device_is_attached(adapter->pdev) == 0)) {
 		device_printf(adapter->pdev, "device is not attached!\n");
@@ -2581,6 +2588,8 @@ ena_down(struct ena_adapter *adapter)
 {
 	int rc;
 
+	KASSERT(rw_write_held(&adapter->ioctl_sx));
+
 	if (adapter->up) {
 		device_printf(adapter->pdev, "device is going DOWN\n");
 
@@ -2752,6 +2761,8 @@ ena_xmit_mbuf(struct ena_ring *tx_ring, struct mbuf **mbuf)
 	int i, rc;
 	int nb_hw_desc;
 
+	KASSERT(ENA_RING_MTX_OWNED(tx_ring));
+
 	ena_qid = ENA_IO_TXQ_IDX(tx_ring->que->id);
 	adapter = tx_ring->que->adapter;
 	ena_dev = adapter->ena_dev;
@@ -2862,6 +2873,8 @@ ena_start_xmit(struct ena_ring *tx_ring)
 	int ena_qid;
 	int acum_pkts = 0;
 	int ret = 0;
+
+	KASSERT(ENA_RING_MTX_OWNED(tx_ring));
 
 	if (unlikely((if_getdrvflags(adapter->ifp) & IFF_RUNNING) == 0))
 		return;

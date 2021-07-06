@@ -390,6 +390,7 @@ struct ena_adapter {
 #define	ENA_RING_MTX_LOCK(_ring)	mutex_enter(&(_ring)->ring_mtx)
 #define	ENA_RING_MTX_TRYLOCK(_ring)	mutex_tryenter(&(_ring)->ring_mtx)
 #define	ENA_RING_MTX_UNLOCK(_ring)	mutex_exit(&(_ring)->ring_mtx)
+#define	ENA_RING_MTX_OWNED(_ring)	mutex_owned(&(_ring)->ring_mtx)
 
 static inline int ena_mbuf_count(struct mbuf *mbuf)
 {
