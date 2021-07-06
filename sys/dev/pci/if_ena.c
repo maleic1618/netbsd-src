@@ -3719,7 +3719,7 @@ ena_attach(device_t parent, device_t self, void *aux)
         	pci_conf_write(pa->pa_pc, pa->pa_tag, PCI_COMMAND_STATUS_REG, reg);
 	}
 
-	mutex_init(&adapter->global_mtx, MUTEX_DEFAULT, IPL_NET);
+	mutex_init(&adapter->global_mtx, MUTEX_DEFAULT, IPL_SOFTNET);
 
 	/* Set up the timer service */
 	adapter->keep_alive_timeout = DEFAULT_KEEP_ALIVE_TO;
