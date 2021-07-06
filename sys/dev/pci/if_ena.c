@@ -3678,7 +3678,8 @@ ena_timer_service(void *data)
 	/*
 	 * Schedule another timeout one second from now.
 	 */
-	callout_schedule(&adapter->timer_service, hz);
+	if (likely(ENA_FLAG_ISSET(ENA_FLAG_DEV_UP, adapter)))
+		callout_schedule(&adapter->timer_service, hz);
 }
 
 static void
