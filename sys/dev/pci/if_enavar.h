@@ -315,7 +315,6 @@ struct ena_adapter {
 
 	/* OS resources */
 	kmutex_t global_mtx;
-	krwlock_t ioctl_sx;
 
 	void *sc_ihs[ENA_MAX_MSIX_VEC(ENA_MAX_NUM_IO_QUEUES)];
 	pci_intr_handle_t *sc_intrs;
@@ -392,6 +391,11 @@ struct ena_adapter {
 #define	ENA_RING_MTX_TRYLOCK(_ring)	mutex_tryenter(&(_ring)->ring_mtx)
 #define	ENA_RING_MTX_UNLOCK(_ring)	mutex_exit(&(_ring)->ring_mtx)
 #define	ENA_RING_MTX_OWNED(_ring)	mutex_owned(&(_ring)->ring_mtx)
+
+#define	ENA_CORE_MTX_LOCK(_adapter)		mutex_enter(&(_adapter)->global_mtx)
+#define	ENA_CORE_MTX_TRYLOCK(_adapter)	mutex_tryenter(&(_adapter)->global_mtx)
+#define	ENA_CORE_MTX_UNLOCK(_adapter)	mutex_exit(&(_adapter)->global_mtx)
+#define	ENA_CORE_MTX_OWNED(_adapter)	mutex_owned(&(_adapter)->global_mtx)
 
 static inline int ena_mbuf_count(struct mbuf *mbuf)
 {

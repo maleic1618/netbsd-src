@@ -2220,7 +2220,7 @@ ena_up(struct ena_adapter *adapter)
 {
 	int rc = 0;
 
-	KASSERT(rw_write_held(&adapter->ioctl_sx));
+	KASSERT(ENA_CORE_MTX_OWNED(adapter));
 
 #if 0
 	if (unlikely(device_is_attached(adapter->pdev) == 0)) {
@@ -2341,20 +2341,17 @@ ena_media_status(struct ifnet *ifp, struct ifmediareq *ifmr)
 	struct ena_adapter *adapter = if_getsoftc(ifp);
 	ena_trace(ENA_DBG, "enter");
 
-	mutex_enter(&adapter->global_mtx);
+	KASSERT(ENA_CORE_MTX_OWNED(adapter));
 
 	ifmr->ifm_status = IFM_AVALID;
 	ifmr->ifm_active = IFM_ETHER;
 
 	if (!adapter->link_status) {
-		mutex_exit(&adapter->global_mtx);
 		ena_trace(ENA_INFO, "link_status = false");
 		return;
 	}
 
 	ifmr->ifm_status |= IFM_ACTIVE;
-
-	mutex_exit(&adapter->global_mtx);
 }
 
 static int
@@ -2363,9 +2360,9 @@ ena_init(struct ifnet *ifp)
 	struct ena_adapter *adapter = if_getsoftc(ifp);
 
 	if (!adapter->up) {
-		rw_enter(&adapter->ioctl_sx, RW_WRITER);
+		ENA_CORE_MTX_LOCK(adapter);
 		ena_up(adapter);
-		rw_exit(&adapter->ioctl_sx);
+		ENA_CORE_MTX_UNLOCK(adapter);
 	}
 
 	return 0;
@@ -2378,9 +2375,9 @@ ena_stop(struct ifnet *ifp, int disable){
 	adapter = ifp->if_softc;
 
 	if (adapter->up) {
-		rw_enter(&adapter->ioctl_sx, RW_WRITER);
+		ENA_CORE_MTX_LOCK(adapter);
 		ena_down(adapter);
-		rw_exit(&adapter->ioctl_sx);
+		ENA_CORE_MTX_UNLOCK(adapter);
 	}
 }
 
@@ -2403,13 +2400,13 @@ ena_ioctl(struct ifnet *ifp, u_long command, void *data)
 	case SIOCSIFMTU:
 		if (ifp->if_mtu == ifr->ifr_mtu)
 			break;
-		rw_enter(&adapter->ioctl_sx, RW_WRITER);
+		ENA_CORE_MTX_LOCK(adapter);
 		ena_down(adapter);
 
 		ena_change_mtu(ifp, ifr->ifr_mtu);
 
 		rc = ena_up(adapter);
-		rw_exit(&adapter->ioctl_sx);
+		ENA_CORE_MTX_UNLOCK(adapter);
 		break;
 
 	case SIOCADDMULTI:
@@ -2428,10 +2425,10 @@ ena_ioctl(struct ifnet *ifp, u_long command, void *data)
 
 			if ((reinit != 0) &&
 			    ((if_getdrvflags(ifp) & IFF_RUNNING) != 0)) {
-				rw_enter(&adapter->ioctl_sx, RW_WRITER);
+				ENA_CORE_MTX_LOCK(adapter);
 				ena_down(adapter);
 				rc = ena_up(adapter);
-				rw_exit(&adapter->ioctl_sx);
+				ENA_CORE_MTX_UNLOCK(adapter);
 			}
 		}
 
@@ -2587,8 +2584,8 @@ ena_setup_ifnet(device_t pdev, struct ena_adapter *adapter,
 	 * callbacks to update media and link information
 	 */
 	adapter->sc_ec.ec_ifmedia = &adapter->media;
-	ifmedia_init(&adapter->media, IFM_IMASK,
-	    ena_media_change, ena_media_status);
+	ifmedia_init_with_lock(&adapter->media, IFM_IMASK,
+	    ena_media_change, ena_media_status, &adapter->global_mtx);
 	ifmedia_add(&adapter->media, IFM_ETHER | IFM_AUTO, 0, NULL);
 	ifmedia_set(&adapter->media, IFM_ETHER | IFM_AUTO);
 
@@ -2605,7 +2602,7 @@ ena_down(struct ena_adapter *adapter)
 {
 	int rc;
 
-	KASSERT(rw_write_held(&adapter->ioctl_sx));
+	KASSERT(ENA_CORE_MTX_OWNED(adapter));
 
 	if (adapter->up) {
 		device_printf(adapter->pdev, "device is going DOWN\n");
@@ -3618,7 +3615,7 @@ ena_reset_task(struct work *wk, void *arg)
 		return;
 	}
 
-	rw_enter(&adapter->ioctl_sx, RW_WRITER);
+	ENA_CORE_MTX_LOCK(adapter);
 
 	callout_halt(&adapter->timer_service, NULL);
 
@@ -3665,7 +3662,7 @@ ena_reset_task(struct work *wk, void *arg)
 
 	callout_schedule(&adapter->timer_service, hz);
 
-	rw_exit(&adapter->ioctl_sx);
+	ENA_CORE_MTX_UNLOCK(adapter);
 
 	return;
 
@@ -3677,7 +3674,7 @@ err_com_free:
 err_dev_free:
 	device_printf(adapter->pdev, "ENA reset failed!\n");
 	adapter->running = false;
-	rw_exit(&adapter->ioctl_sx);
+	ENA_CORE_MTX_UNLOCK(adapter);
 }
 
 /**
@@ -3723,7 +3720,6 @@ ena_attach(device_t parent, device_t self, void *aux)
 	}
 
 	mutex_init(&adapter->global_mtx, MUTEX_DEFAULT, IPL_NET);
-	rw_init(&adapter->ioctl_sx);
 
 	/* Set up the timer service */
 	adapter->keep_alive_timeout = DEFAULT_KEEP_ALIVE_TO;
@@ -3898,9 +3894,9 @@ ena_detach(device_t pdev, int flags)
 		return (EBUSY);
 	}
 
-	rw_enter(&adapter->ioctl_sx, RW_WRITER);
+	ENA_CORE_MTX_LOCK(adapter);
 	ena_down(adapter);
-	rw_exit(&adapter->ioctl_sx);
+	ENA_CORE_MTX_UNLOCK(adapter);
 
 	/* Free reset task and callout */
 	callout_halt(&adapter->timer_service, NULL);
@@ -3958,7 +3954,6 @@ ena_detach(device_t pdev, int flags)
 	ena_free_pci_resources(adapter);
 
 	mutex_destroy(&adapter->global_mtx);
-	rw_destroy(&adapter->ioctl_sx);
 
 	if (ena_dev->bus != NULL)
 		free(ena_dev->bus, M_DEVBUF);
