@@ -3412,14 +3412,16 @@ static void ena_keep_alive_wd(void *adapter_data,
 {
 	struct ena_adapter *adapter = (struct ena_adapter *)adapter_data;
 	struct ena_admin_aenq_keep_alive_desc *desc;
-	uint64_t rx_drops;
+	uint64_t rx_drops, old;
 
 	desc = (struct ena_admin_aenq_keep_alive_desc *)aenq_e;
 
 	rx_drops = ((uint64_t)desc->rx_drops_high << 32) | desc->rx_drops_low;
-	counter_u64_zero(adapter->hw_stats.rx_drops);
-	counter_u64_add(adapter->hw_stats.rx_drops, rx_drops);
-	if_statadd(adapter->ifp, if_iqdrops, rx_drops);
+	old = adapter->hw_stats.rx_drops.ev_count;
+	if (rx_drops > old) {
+		counter_u64_add(adapter->hw_stats.rx_drops, rx_drops - old);
+		if_statadd(adapter->ifp, if_iqdrops, rx_drops - old);
+	}
 
 	atomic_store_release(&adapter->keep_alive_timestamp, getsbinuptime());
 }
