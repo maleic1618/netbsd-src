@@ -143,6 +143,7 @@ static uint64_t	ena_get_counter(struct ifnet *, ift_counter);
 static int	ena_media_change(struct ifnet *);
 static void	ena_media_status(struct ifnet *, struct ifmediareq *);
 static int	ena_init(struct ifnet *);
+static void	ena_stop(struct ifnet *, int);
 static int	ena_ioctl(struct ifnet *, u_long, void *);
 static int	ena_get_dev_offloads(struct ena_com_dev_get_features_ctx *);
 static void	ena_update_host_info(struct ena_admin_host_info *, struct ifnet *);
@@ -2371,6 +2372,20 @@ ena_init(struct ifnet *ifp)
 	return 0;
 }
 
+static void
+ena_stop(struct ifnet *ifp, int disable){
+	struct ena_adapter *adapter;
+
+	adapter = ifp->if_softc;
+
+	if (adapter->up) {
+		rw_enter(&adapter->ioctl_sx, RW_WRITER);
+		ena_down(adapter);
+		rw_exit(&adapter->ioctl_sx);
+	}
+}
+
+
 static int
 ena_ioctl(struct ifnet *ifp, u_long command, void *data)
 {
@@ -2531,6 +2546,7 @@ ena_setup_ifnet(device_t pdev, struct ena_adapter *adapter,
 
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
 	if_setinitfn(ifp, ena_init);
+	ifp->if_stop = ena_stop;
 	if_settransmitfn(ifp, ena_mq_start);
 #if 0
 	if_setqflushfn(ifp, ena_qflush);
