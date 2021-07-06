@@ -2615,8 +2615,6 @@ ena_down(struct ena_adapter *adapter)
 		if_setdrvflagbits(adapter->ifp, IFF_OACTIVE,
 		    IFF_RUNNING);
 
-		ena_free_io_irq(adapter);
-
 		if (adapter->trigger_reset) {
 			rc = ena_com_dev_reset(adapter->ena_dev,
 			    adapter->reset_reason);
@@ -2631,6 +2629,8 @@ ena_down(struct ena_adapter *adapter)
 		ena_free_all_rx_bufs(adapter);
 		ena_free_all_tx_resources(adapter);
 		ena_free_all_rx_resources(adapter);
+
+		ena_free_io_irq(adapter);
 
 		counter_u64_add(adapter->dev_stats.interface_down, 1);
 	}
