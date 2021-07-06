@@ -223,7 +223,7 @@ ena_dma_alloc(device_t dmadev, bus_size_t size,
     ena_mem_handle_t *dma , int mapflags)
 {
 	struct ena_adapter *adapter = device_private(dmadev);
-	uint32_t maxsize;
+	bus_size_t maxsize;
 	int error;
 
 	maxsize = ((size - 1) / PAGE_SIZE + 1) * PAGE_SIZE;
@@ -318,7 +318,7 @@ ena_allocate_pci_resources(struct pci_attach_args *pa,
 	if (pci_get_capability(pa->pa_pc, pa->pa_tag, PCI_CAP_MSIX, &msixoff,
 	    NULL)) {
 		pcireg_t msixtbl;
-		uint32_t table_offset;
+		bus_size_t table_offset;
 		int bir;
 
 		msixtbl = pci_conf_read(pa->pa_pc, pa->pa_tag,
