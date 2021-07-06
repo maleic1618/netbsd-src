@@ -3742,8 +3742,6 @@ ena_reset_task(struct work *wk, void *arg)
 		}
 	}
 
-	callout_schedule(&adapter->timer_service, hz);
-
 	ENA_CORE_MTX_UNLOCK(adapter);
 
 	return;
