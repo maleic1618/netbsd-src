@@ -173,12 +173,12 @@ static void	unimplemented_aenq_handler(void *,
 		    struct ena_admin_aenq_entry *);
 
 static int	ena_handle_msix(void *);
+static void	ena_cleanup(struct work *, void *);
 static inline int	validate_rx_req_id(struct ena_ring *, uint16_t);
 static inline int	ena_alloc_rx_mbuf(struct ena_adapter *,
 			    struct ena_ring *, struct ena_rx_buffer *);
 static int	ena_refill_rx_bufs(struct ena_ring *, uint32_t);
 static void	ena_refill_all_rx_bufs(struct ena_adapter *);
-static void	ena_deferred_rx_cleanup(struct work *, void *);
 static int	ena_rx_cleanup(struct ena_ring *);
 static struct mbuf*	ena_rx_mbuf(struct ena_ring *,
 			    struct ena_com_rx_buf_info *,
@@ -943,8 +943,8 @@ ena_setup_rx_resources(struct ena_adapter *adapter, unsigned int qid)
 #endif
 
 	/* Allocate workqueues */
-	int rc = workqueue_create(&rx_ring->cmpl_tq, "ena_rx_comp",
-	    ena_deferred_rx_cleanup, rx_ring, 0, IPL_NET, WQ_PERCPU | WQ_FLAGS);
+	int rc = workqueue_create(&rx_ring->cleanup_tq, "ena_rx_comp",
+	    ena_cleanup, que, 0, IPL_NET, WQ_PERCPU | WQ_FLAGS);
 	if (unlikely(rc != 0)) {
 		ena_trace(ENA_ALERT,
 		    "Unable to create workqueue for RX completion task\n");
@@ -991,9 +991,9 @@ ena_free_rx_resources(struct ena_adapter *adapter, unsigned int qid)
 {
 	struct ena_ring *rx_ring = &adapter->rx_ring[qid];
 
-	workqueue_wait(rx_ring->cmpl_tq, &rx_ring->cmpl_task);
-	workqueue_destroy(rx_ring->cmpl_tq);
-	rx_ring->cmpl_tq = NULL;
+	workqueue_wait(rx_ring->cleanup_tq, &rx_ring->cleanup_task);
+	workqueue_destroy(rx_ring->cleanup_tq);
+	rx_ring->cleanup_tq = NULL;
 
 	/* Free buffer DMA maps, */
 	for (int i = 0; i < rx_ring->ring_size; i++) {
@@ -1722,26 +1722,6 @@ ena_rx_checksum(struct ena_ring *rx_ring, struct ena_com_rx_ctx *ena_rx_ctx,
 	}
 }
 
-static void
-ena_deferred_rx_cleanup(struct work *wk, void *arg)
-{
-	struct ena_ring *rx_ring = arg;
-	int budget = CLEAN_BUDGET;
-
-	atomic_swap_uint(&rx_ring->task_pending, 0);
-
-	ENA_RING_MTX_LOCK(rx_ring);
-	/*
-	 * If deferred task was executed, perform cleanup of all awaiting
-	 * descs (or until given budget is depleted to avoid infinite loop).
-	 */
-	while (likely(budget--)) {
-		if (ena_rx_cleanup(rx_ring) == 0)
-			break;
-	}
-	ENA_RING_MTX_UNLOCK(rx_ring);
-}
-
 /**
  * ena_rx_cleanup - handle rx irq
  * @arg: ring for which irq is being handled
@@ -1763,8 +1743,6 @@ ena_rx_cleanup(struct ena_ring *rx_ring)
 	unsigned int qid;
 	int rc, i;
 	int budget = RX_BUDGET;
-
-	KASSERT(ENA_RING_MTX_OWNED(rx_ring));
 
 	adapter = rx_ring->que->adapter;
 	ifp = adapter->ifp;
@@ -1907,23 +1885,41 @@ ena_intr_msix_mgmnt(void *arg)
 static int
 ena_handle_msix(void *arg)
 {
+	struct ena_que *queue = arg;
+	struct ena_adapter *adapter = queue->adapter;
+	struct ena_ring *rx_ring = queue->rx_ring;
+	struct ifnet *ifp = adapter->ifp;
+
+	if (unlikely((if_getdrvflags(ifp) & IFF_RUNNING) == 0))
+		return 0;
+
+	if (atomic_cas_uint(&rx_ring->task_pending, 0, 1) == 0)
+		workqueue_enqueue(rx_ring->cleanup_tq, &rx_ring->cleanup_task,
+		    curcpu());
+
+	return 1;
+}
+
+static void
+ena_cleanup(struct work *wk, void *arg)
+{
 	struct ena_que	*que = arg;
 	struct ena_adapter *adapter = que->adapter;
 	struct ifnet *ifp = adapter->ifp;
-	struct ena_ring *tx_ring;
-	struct ena_ring *rx_ring;
+	struct ena_ring *tx_ring = que->tx_ring;
+	struct ena_ring *rx_ring = que->rx_ring;
 	struct ena_com_io_cq* io_cq;
 	struct ena_eth_io_intr_reg intr_reg;
 	int qid, ena_qid;
 	int txc, rxc, i;
 
+	atomic_swap_uint(&rx_ring->task_pending, 0);
+
 	if (unlikely((if_getdrvflags(ifp) & IFF_RUNNING) == 0))
-		return 0;
+		return;
 
 	ena_trace(ENA_DBG, "MSI-X TX/RX routine");
 
-	tx_ring = que->tx_ring;
-	rx_ring = que->rx_ring;
 	qid = que->id;
 	ena_qid = ENA_IO_TXQ_IDX(qid);
 	io_cq = &adapter->ena_dev->io_cq_queues[ena_qid];
@@ -1934,12 +1930,7 @@ ena_handle_msix(void *arg)
 		 * being executed and rx ring is being cleaned up in
 		 * another thread.
 		 */
-		if (likely(ENA_RING_MTX_TRYLOCK(rx_ring) != 0)) {
-			rxc = ena_rx_cleanup(rx_ring);
-			ENA_RING_MTX_UNLOCK(rx_ring);
-		} else {
-			rxc = 0;
-		}
+		rxc = ena_rx_cleanup(rx_ring);
 
 		/* Protection from calling ena_tx_cleanup from ena_start_xmit */
 		ENA_RING_MTX_LOCK(tx_ring);
@@ -1947,7 +1938,7 @@ ena_handle_msix(void *arg)
 		ENA_RING_MTX_UNLOCK(tx_ring);
 
 		if (unlikely((if_getdrvflags(ifp) & IFF_RUNNING) == 0))
-			return 0;
+			return;
 
 		if ((txc != TX_BUDGET) && (rxc != RX_BUDGET))
 		       break;
@@ -1959,8 +1950,6 @@ ena_handle_msix(void *arg)
 	    TX_IRQ_INTERVAL,
 	    true);
 	ena_com_unmask_intr(io_cq, &intr_reg);
-
-	return 1;
 }
 
 static int
@@ -2640,18 +2629,22 @@ ena_setup_ifnet(device_t pdev, struct ena_adapter *adapter,
 static void
 ena_down(struct ena_adapter *adapter)
 {
-	int rc;
+	int rc, i;
 
 	KASSERT(ENA_CORE_MTX_OWNED(adapter));
 
 	if (adapter->up) {
 		device_printf(adapter->pdev, "device is going DOWN\n");
-
-		callout_halt(&adapter->timer_service, NULL);
-
 		adapter->up = false;
 		if_setdrvflagbits(adapter->ifp, IFF_OACTIVE,
 		    IFF_RUNNING);
+
+		callout_halt(&adapter->timer_service, NULL);
+		for (i = 0; i < adapter->num_queues; i++) {
+			struct ena_ring *rx_ring = adapter->que[i].rx_ring;
+			workqueue_wait(rx_ring->cleanup_tq,
+			    &rx_ring->cleanup_task);
+		}
 
 		if (adapter->trigger_reset) {
 			rc = ena_com_dev_reset(adapter->ena_dev,
@@ -3599,8 +3592,8 @@ check_for_empty_rx_ring(struct ena_adapter *adapter)
 				    "trigger refill for ring %d\n", i);
 
 				if (atomic_cas_uint(&rx_ring->task_pending, 0, 1) == 0)
-					workqueue_enqueue(rx_ring->cmpl_tq,
-					    &rx_ring->cmpl_task, curcpu());
+					workqueue_enqueue(rx_ring->cleanup_tq,
+					    &rx_ring->cleanup_task, curcpu());
 				rx_ring->empty_rx_queue = 0;
 			}
 		} else {

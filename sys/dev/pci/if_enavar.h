@@ -286,8 +286,8 @@ struct ena_ring {
 			struct workqueue *enqueue_tq;
 		};
 		struct {
-			struct work cmpl_task;
-			struct workqueue *cmpl_tq;
+			struct work cleanup_task;
+			struct workqueue *cleanup_tq;
 		};
 	};
 	u_int task_pending; /* atomic */
