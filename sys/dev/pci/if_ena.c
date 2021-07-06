@@ -3815,7 +3815,6 @@ ena_attach(device_t parent, device_t self, void *aux)
 
 err_ifp_free:
 	if_detach(adapter->ifp);
-	if_free(adapter->ifp);
 err_io_free:
 	ena_free_all_io_rings_resources(adapter);
 #if 0
@@ -3868,7 +3867,7 @@ ena_detach(device_t pdev, int flags)
 
 	if (adapter->ifp != NULL) {
 		ether_ifdetach(adapter->ifp);
-		if_free(adapter->ifp);
+		if_detach(adapter->ifp);
 	}
 	ifmedia_fini(&adapter->media);
 
