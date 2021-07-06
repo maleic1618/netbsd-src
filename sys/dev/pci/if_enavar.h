@@ -37,6 +37,7 @@
 #define ENA_H
 
 #include <sys/types.h>
+#include <sys/atomic.h>
 #include <sys/pcq.h>
 
 #include "external/bsd/ena-com/ena_com.h"
@@ -147,6 +148,29 @@
 #define	PCI_DEV_ID_ENA_LLQ_PF	0x1ec2
 #define	PCI_DEV_ID_ENA_VF	0xec20
 #define	PCI_DEV_ID_ENA_LLQ_VF	0xec21
+
+/*
+ * Flags indicating current ENA driver state
+ */
+enum ena_flags_t {
+	ENA_FLAG_DEVICE_RUNNING,
+	ENA_FLAG_DEV_UP,
+	ENA_FLAG_LINK_UP,
+	ENA_FLAG_MSIX_ENABLED,
+	ENA_FLAG_TRIGGER_RESET,
+	ENA_FLAG_ONGOING_RESET,
+	ENA_FLAG_DEV_UP_BEFORE_RESET,
+	ENA_FLAG_RSS_ACTIVE,
+	ENA_FLAGS_NUMBER = ENA_FLAG_RSS_ACTIVE
+};
+
+#define ENA_FLAG_BITMASK(bit)	(~(uint32_t)__BIT(bit))
+#define ENA_FLAG_ZERO(adapter)	(adapter)->flags = 0;
+#define ENA_FLAG_ISSET(bit, adapter)	((adapter)->flags & __BIT(bit))
+#define ENA_FLAG_SET_ATOMIC(bit, adapter)	\
+	atomic_or_32(&(adapter)->flags, __BIT(bit))
+#define ENA_FLAG_CLEAR_ATOMIC(bit, adapter)	\
+	atomic_and_32(&(adapter)->flags, ENA_FLAG_BITMASK(bit))
 
 typedef __int64_t sbintime_t;
 
@@ -368,10 +392,7 @@ struct ena_adapter {
 	uint8_t mac_addr[ETHER_ADDR_LEN];
 	/* mdio and phy*/
 
-	bool link_status;
-	bool trigger_reset; /* atomic */
-	bool up;
-	bool running;
+	uint32_t flags; /* atomic */
 
 	/* Queue will represent one TX and one RX ring */
 	struct ena_que que[ENA_MAX_NUM_IO_QUEUES]
