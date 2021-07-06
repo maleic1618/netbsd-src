@@ -2479,7 +2479,9 @@ ena_get_dev_offloads(struct ena_com_dev_get_features_ctx *feat)
 	    ENA_ADMIN_FEATURE_OFFLOAD_DESC_RX_L4_IPV6_CSUM_MASK) != 0)
 		caps |= IFCAP_CSUM_TCPv6_Rx | IFCAP_CSUM_UDPv6_Rx;
 
+#ifdef LRO
 	caps |= IFCAP_LRO;
+#endif
 
 	return (caps);
 }
