@@ -3053,6 +3053,7 @@ ena_mq_start(struct ifnet *ifp, struct mbuf *m)
 	is_drbr_empty = pcq_peek(tx_ring->br);
 	ret = pcq_put(tx_ring->br, m);
 	if (unlikely(ret == false)) {
+		m_freem(m);
 		counter_u64_add(tx_ring->tx_stats.pcq_drops, 1);
 		if (atomic_cas_uint(&tx_ring->task_pending, 0, 1) == 0)
 			workqueue_enqueue(tx_ring->enqueue_tq, &tx_ring->enqueue_task,
