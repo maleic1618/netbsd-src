@@ -210,7 +210,6 @@ struct ena_stats_rx {
 	struct evcnt bytes;
 	struct evcnt refil_partial;
 	struct evcnt bad_csum;
-	struct evcnt mjum_alloc_fail;
 	struct evcnt mbuf_alloc_fail;
 	struct evcnt dma_mapping_err;
 	struct evcnt bad_desc_num;

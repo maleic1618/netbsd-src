@@ -408,7 +408,6 @@ ena_alloc_counters_rx(struct ena_adapter *adapter, struct ena_stats_rx *st, int 
 	EVCNT_INIT(st, bytes);
 	EVCNT_INIT(st, refil_partial);
 	EVCNT_INIT(st, bad_csum);
-	EVCNT_INIT(st, mjum_alloc_fail);
 	EVCNT_INIT(st, mbuf_alloc_fail);
 	EVCNT_INIT(st, dma_mapping_err);
 	EVCNT_INIT(st, bad_desc_num);
@@ -1034,20 +1033,13 @@ ena_alloc_rx_mbuf(struct ena_adapter *adapter,
 	if (unlikely(rx_info->mbuf != NULL))
 		return (0);
 
-	/* Get mbuf using UMA allocator */
-	rx_info->mbuf = m_getjcl(M_NOWAIT, MT_DATA, M_PKTHDR, MJUM16BYTES);
-
+	rx_info->mbuf = m_getcl(M_NOWAIT, MT_DATA, M_PKTHDR);
 	if (unlikely(rx_info->mbuf == NULL)) {
-		counter_u64_add(rx_ring->rx_stats.mjum_alloc_fail, 1);
-		rx_info->mbuf = m_getcl(M_NOWAIT, MT_DATA, M_PKTHDR);
-		if (unlikely(rx_info->mbuf == NULL)) {
-			counter_u64_add(rx_ring->rx_stats.mbuf_alloc_fail, 1);
-			return (ENOMEM);
-		}
-		mlen = MCLBYTES;
-	} else {
-		mlen = MJUM16BYTES;
+		counter_u64_add(rx_ring->rx_stats.mbuf_alloc_fail, 1);
+		return (ENOMEM);
 	}
+	mlen = MCLBYTES;
+
 	/* Set mbuf length*/
 	rx_info->mbuf->m_pkthdr.len = rx_info->mbuf->m_len = mlen;
 
