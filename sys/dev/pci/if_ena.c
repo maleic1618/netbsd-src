@@ -72,113 +72,153 @@ __KERNEL_RCSID(0, "$NetBSD: if_ena.c,v 1.28 2021/07/01 17:22:10 jmcneill Exp $")
 /*********************************************************
  *  Function prototypes
  *********************************************************/
+/* cfattach interface functions */
 static int	ena_probe(device_t, cfdata_t, void *);
-static int	ena_intr_msix_mgmnt(void *);
+static void	ena_attach(device_t, device_t, void *);
+static int	ena_detach(device_t, int);
+
+/* ifnet interface functions */
+static int	ena_init(struct ifnet *);
+static void	ena_stop(struct ifnet *, int);
+static int	ena_ioctl(struct ifnet *, u_long, void *);
+static int	ena_media_change(struct ifnet *);
+static void	ena_media_status(struct ifnet *, struct ifmediareq *);
+static int	ena_mq_start(struct ifnet *, struct mbuf *);
+
+/* attach or detach */
+static int	ena_calc_io_queue_num(struct pci_attach_args *,
+		    struct ena_adapter *,
+		    struct ena_com_dev_get_features_ctx *);
+static int	ena_calc_queue_size(struct ena_adapter *, uint16_t *,
+		    uint16_t *, struct ena_com_dev_get_features_ctx *);
+
 static int	ena_allocate_pci_resources(struct pci_attach_args *,
 		    struct ena_adapter *);
 static void	ena_free_pci_resources(struct ena_adapter *);
-static int	ena_change_mtu(struct ifnet *, int);
+static void	ena_free_irqs(struct ena_adapter*);
+
 static void	ena_init_io_rings_common(struct ena_adapter *,
-    struct ena_ring *, uint16_t);
+                                            struct ena_ring *, uint16_t);
 static void	ena_init_io_rings(struct ena_adapter *);
 static void	ena_free_io_ring_resources(struct ena_adapter *, unsigned int);
 static void	ena_free_all_io_rings_resources(struct ena_adapter *);
+
+static int	ena_get_dev_offloads(struct ena_com_dev_get_features_ctx *);
+static int	ena_setup_ifnet(device_t, struct ena_adapter *,
+		    struct ena_com_dev_get_features_ctx *);
+
+static inline void	ena_alloc_counters_rx(struct ena_adapter *,
+			    struct ena_stats_rx *, int);
+static inline void	ena_alloc_counters_tx(struct ena_adapter *,
+			    struct ena_stats_tx *, int);
+static inline void	ena_alloc_counters_dev(struct ena_adapter *,
+			    struct ena_stats_dev *, int);
+static inline void	ena_alloc_counters_hwstats(struct ena_adapter *,
+			    struct ena_hw_stats *, int);
+static inline void	ena_free_counters(struct evcnt *, int, int);
+
+/* attach or detach or ena_reset_task() */
+static void	ena_reset_task(struct work *, void *);
+
+static void	ena_free_mgmnt_irq(struct ena_adapter *);
+static void	ena_disable_msix(struct ena_adapter *);
+static void	ena_config_host_info(struct ena_com_dev *);
+static int	ena_device_init(struct ena_adapter *, device_t,
+		    struct ena_com_dev_get_features_ctx *, int *);
+static int	ena_enable_msix_and_set_admin_interrupts(struct ena_adapter *,
+		    int);
+static int	ena_enable_msix(struct ena_adapter *);
+static int	ena_request_mgmnt_irq(struct ena_adapter *);
+
+/* I/F up or down */
+static int	ena_up_complete(struct ena_adapter *);
+static int	ena_up(struct ena_adapter *);
+static void	ena_down(struct ena_adapter *);
+
+static int	ena_setup_rx_resources(struct ena_adapter *, unsigned int);
+static int	ena_setup_all_rx_resources(struct ena_adapter *);
+static void	ena_free_rx_resources(struct ena_adapter *, unsigned int);
+static void	ena_free_all_rx_resources(struct ena_adapter *);
+static void	ena_free_rx_mbuf(struct ena_adapter *, struct ena_ring *,
+		    struct ena_rx_buffer *);
+static void	ena_free_rx_bufs(struct ena_adapter *, unsigned int);
+static void	ena_free_all_rx_bufs(struct ena_adapter *);
+
+static int	ena_setup_tx_resources(struct ena_adapter *, int);
+static int	ena_setup_all_tx_resources(struct ena_adapter *);
+static void	ena_free_tx_resources(struct ena_adapter *, int);
+static void	ena_free_all_tx_resources(struct ena_adapter *);
+static void	ena_free_tx_bufs(struct ena_adapter *, unsigned int);
+static void	ena_free_all_tx_bufs(struct ena_adapter *);
+
+static int	ena_request_io_irq(struct ena_adapter *);
+static void	ena_free_io_irq(struct ena_adapter *);
+static int	ena_create_io_queues(struct ena_adapter *);
+static void	ena_destroy_all_tx_queues(struct ena_adapter *);
+static void	ena_destroy_all_rx_queues(struct ena_adapter *);
+static void	ena_destroy_all_io_queues(struct ena_adapter *);
+
+static void	ena_update_hwassist(struct ena_adapter *);
+static int	ena_rss_configure(struct ena_adapter *);
+static void	ena_unmask_all_io_irqs(struct ena_adapter *);
+static inline void	ena_reset_counters(struct evcnt *, int, int);
+
+/* other hardware interrupt, workqueue, softint context */
+static int	ena_intr_msix_mgmnt(void *);
+static void	ena_update_on_link_change(void *,
+		    struct ena_admin_aenq_entry *);
+static void	ena_keep_alive_wd(void *,
+		    struct ena_admin_aenq_entry *);
+static void	unimplemented_aenq_handler(void *,
+		    struct ena_admin_aenq_entry *);
+
+static int	ena_handle_msix(void *);
+static inline int	validate_rx_req_id(struct ena_ring *, uint16_t);
+static inline int	ena_alloc_rx_mbuf(struct ena_adapter *,
+			    struct ena_ring *, struct ena_rx_buffer *);
+static int	ena_refill_rx_bufs(struct ena_ring *, uint32_t);
+static void	ena_refill_all_rx_bufs(struct ena_adapter *);
+static void	ena_deferred_rx_cleanup(struct work *, void *);
+static int	ena_rx_cleanup(struct ena_ring *);
+static struct mbuf*	ena_rx_mbuf(struct ena_ring *,
+			    struct ena_com_rx_buf_info *,
+			    struct ena_com_rx_ctx *, uint16_t *);
+static inline void	ena_rx_checksum(struct ena_ring *,
+			    struct ena_com_rx_ctx *, struct mbuf *);
+
+static int	ena_check_and_collapse_mbuf(struct ena_ring *tx_ring,
+		    struct mbuf **mbuf);
+static int	ena_xmit_mbuf(struct ena_ring *, struct mbuf **);
+static void	ena_start_xmit(struct ena_ring *);
+static void	ena_deferred_mq_start(struct work *, void *);
+static int	ena_tx_cleanup(struct ena_ring *);
+static void	ena_tx_csum(struct ena_com_tx_ctx *, struct mbuf *);
+static inline int	validate_tx_req_id(struct ena_ring *, uint16_t);
+
+/* other */
+static int	ena_change_mtu(struct ifnet *, int);
+
+static void	ena_timer_service(void *);
+static void	check_for_missing_keep_alive(struct ena_adapter *);
+static void	check_for_admin_com_state(struct ena_adapter *);
+static int	check_missing_comp_in_queue(struct ena_adapter *, struct ena_ring*);
+static void	check_for_missing_tx_completions(struct ena_adapter *);
+static void	check_for_empty_rx_ring(struct ena_adapter *);
+static void	ena_update_host_info(struct ena_admin_host_info *,
+		    struct ifnet *);
+
 #if 0
 static int	ena_setup_tx_dma_tag(struct ena_adapter *);
 static int	ena_free_tx_dma_tag(struct ena_adapter *);
 static int	ena_setup_rx_dma_tag(struct ena_adapter *);
 static int	ena_free_rx_dma_tag(struct ena_adapter *);
-#endif
-static int	ena_setup_tx_resources(struct ena_adapter *, int);
-static void	ena_free_tx_resources(struct ena_adapter *, int);
-static int	ena_setup_all_tx_resources(struct ena_adapter *);
-static void	ena_free_all_tx_resources(struct ena_adapter *);
-static inline int validate_rx_req_id(struct ena_ring *, uint16_t);
-static int	ena_setup_rx_resources(struct ena_adapter *, unsigned int);
-static void	ena_free_rx_resources(struct ena_adapter *, unsigned int);
-static int	ena_setup_all_rx_resources(struct ena_adapter *);
-static void	ena_free_all_rx_resources(struct ena_adapter *);
-static inline int ena_alloc_rx_mbuf(struct ena_adapter *, struct ena_ring *,
-    struct ena_rx_buffer *);
-static void	ena_free_rx_mbuf(struct ena_adapter *, struct ena_ring *,
-    struct ena_rx_buffer *);
-static int	ena_refill_rx_bufs(struct ena_ring *, uint32_t);
-static void	ena_free_rx_bufs(struct ena_adapter *, unsigned int);
-static void	ena_refill_all_rx_bufs(struct ena_adapter *);
-static void	ena_free_all_rx_bufs(struct ena_adapter *);
-static void	ena_free_tx_bufs(struct ena_adapter *, unsigned int);
-static void	ena_free_all_tx_bufs(struct ena_adapter *);
-static void	ena_destroy_all_tx_queues(struct ena_adapter *);
-static void	ena_destroy_all_rx_queues(struct ena_adapter *);
-static void	ena_destroy_all_io_queues(struct ena_adapter *);
-static int	ena_create_io_queues(struct ena_adapter *);
-static int	ena_tx_cleanup(struct ena_ring *);
-static void	ena_deferred_rx_cleanup(struct work *, void *);
-static int	ena_rx_cleanup(struct ena_ring *);
-static inline int validate_tx_req_id(struct ena_ring *, uint16_t);
-#if 0
 static void	ena_rx_hash_mbuf(struct ena_ring *, struct ena_com_rx_ctx *,
     struct mbuf *);
-#endif
-static struct mbuf* ena_rx_mbuf(struct ena_ring *, struct ena_com_rx_buf_info *,
-    struct ena_com_rx_ctx *, uint16_t *);
-static inline void ena_rx_checksum(struct ena_ring *, struct ena_com_rx_ctx *,
-    struct mbuf *);
-static int	ena_handle_msix(void *);
-static int	ena_enable_msix(struct ena_adapter *);
-static int	ena_request_mgmnt_irq(struct ena_adapter *);
-static int	ena_request_io_irq(struct ena_adapter *);
-static void	ena_free_mgmnt_irq(struct ena_adapter *);
-static void	ena_free_io_irq(struct ena_adapter *);
-static void	ena_free_irqs(struct ena_adapter*);
-static void	ena_disable_msix(struct ena_adapter *);
-static void	ena_unmask_all_io_irqs(struct ena_adapter *);
-static int	ena_rss_configure(struct ena_adapter *);
-static int	ena_up_complete(struct ena_adapter *);
-static int	ena_up(struct ena_adapter *);
-static void	ena_down(struct ena_adapter *);
-#if 0
 static uint64_t	ena_get_counter(struct ifnet *, ift_counter);
-#endif
-static int	ena_media_change(struct ifnet *);
-static void	ena_media_status(struct ifnet *, struct ifmediareq *);
-static int	ena_init(struct ifnet *);
-static void	ena_stop(struct ifnet *, int);
-static int	ena_ioctl(struct ifnet *, u_long, void *);
-static int	ena_get_dev_offloads(struct ena_com_dev_get_features_ctx *);
-static void	ena_update_host_info(struct ena_admin_host_info *, struct ifnet *);
-static void	ena_update_hwassist(struct ena_adapter *);
-static int	ena_setup_ifnet(device_t, struct ena_adapter *,
-    struct ena_com_dev_get_features_ctx *);
-static void	ena_tx_csum(struct ena_com_tx_ctx *, struct mbuf *);
-static int	ena_check_and_collapse_mbuf(struct ena_ring *tx_ring,
-    struct mbuf **mbuf);
-static int	ena_xmit_mbuf(struct ena_ring *, struct mbuf **);
-static void	ena_start_xmit(struct ena_ring *);
-static int	ena_mq_start(struct ifnet *, struct mbuf *);
-static void	ena_deferred_mq_start(struct work *, void *);
-#if 0
 static void	ena_qflush(struct ifnet *);
-#endif
-static int	ena_calc_io_queue_num(struct pci_attach_args *,
-    struct ena_adapter *, struct ena_com_dev_get_features_ctx *);
-static int	ena_calc_queue_size(struct ena_adapter *, uint16_t *,
-    uint16_t *, struct ena_com_dev_get_features_ctx *);
-#if 0
 static int	ena_rss_init_default(struct ena_adapter *);
 static void	ena_rss_init_default_deferred(void *);
 #endif
-static void	ena_config_host_info(struct ena_com_dev *);
-static void	ena_attach(device_t, device_t, void *);
-static int	ena_detach(device_t, int);
-static int	ena_device_init(struct ena_adapter *, device_t,
-    struct ena_com_dev_get_features_ctx *, int *);
-static int	ena_enable_msix_and_set_admin_interrupts(struct ena_adapter *,
-    int);
-static void ena_update_on_link_change(void *, struct ena_admin_aenq_entry *);
-static void	unimplemented_aenq_handler(void *,
-    struct ena_admin_aenq_entry *);
-static void	ena_timer_service(void *);
 
 static const char ena_version[] =
     DEVICE_NAME DRV_MODULE_NAME " v" DRV_MODULE_VERSION;
