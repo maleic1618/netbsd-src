@@ -134,6 +134,7 @@ static int	ena_request_mgmnt_irq(struct ena_adapter *);
 static int	ena_up_complete(struct ena_adapter *);
 static int	ena_up(struct ena_adapter *);
 static void	ena_down(struct ena_adapter *);
+static void	ena_set_stopping_flag(struct ena_adapter *, bool);
 
 static int	ena_setup_rx_resources(struct ena_adapter *, unsigned int);
 static int	ena_setup_all_rx_resources(struct ena_adapter *);
@@ -1880,17 +1881,19 @@ static int
 ena_handle_msix(void *arg)
 {
 	struct ena_que *queue = arg;
-	struct ena_adapter *adapter = queue->adapter;
 	struct ena_ring *rx_ring = queue->rx_ring;
-	struct ifnet *ifp = adapter->ifp;
 
-	if (unlikely((if_getdrvflags(ifp) & IFF_RUNNING) == 0))
+	ENA_RING_MTX_LOCK(rx_ring);
+	if (unlikely(rx_ring->stopping)) {
+		ENA_RING_MTX_UNLOCK(rx_ring);
 		return 0;
+	}
 
 	if (atomic_cas_uint(&rx_ring->task_pending, 0, 1) == 0)
 		workqueue_enqueue(rx_ring->cleanup_tq, &rx_ring->cleanup_task,
 		    curcpu());
 
+	ENA_RING_MTX_UNLOCK(rx_ring);
 	return 1;
 }
 
@@ -1924,10 +1927,20 @@ ena_cleanup(struct work *wk, void *arg)
 		 * being executed and rx ring is being cleaned up in
 		 * another thread.
 		 */
+		ENA_RING_MTX_LOCK(rx_ring);
+		if (rx_ring->stopping) {
+			ENA_RING_MTX_UNLOCK(rx_ring);
+			return;
+		}
+		ENA_RING_MTX_UNLOCK(rx_ring);
 		rxc = ena_rx_cleanup(rx_ring);
 
 		/* Protection from calling ena_tx_cleanup from ena_start_xmit */
 		ENA_RING_MTX_LOCK(tx_ring);
+		if (tx_ring->stopping) {
+			ENA_RING_MTX_UNLOCK(tx_ring);
+			return;
+		}
 		txc = ena_tx_cleanup(tx_ring);
 		ENA_RING_MTX_UNLOCK(tx_ring);
 
@@ -2302,6 +2315,7 @@ ena_up(struct ena_adapter *adapter)
 
 		if_setdrvflagbits(adapter->ifp, IFF_RUNNING,
 		    IFF_OACTIVE);
+		ena_set_stopping_flag(adapter, false);
 
 		callout_schedule(&adapter->timer_service, hz);
 
@@ -2621,6 +2635,27 @@ ena_setup_ifnet(device_t pdev, struct ena_adapter *adapter,
 }
 
 static void
+ena_set_stopping_flag(struct ena_adapter *adapter, bool value)
+{
+	struct ena_ring *ring;
+	int i;
+
+	for (i = 0; i < adapter->num_queues; i++) {
+		/* TX */
+		ring = adapter->que[i].tx_ring;
+		ENA_RING_MTX_LOCK(ring);
+		ring->stopping = value;
+		ENA_RING_MTX_UNLOCK(ring);
+
+		/* RX */
+		ring = adapter->que[i].rx_ring;
+		ENA_RING_MTX_LOCK(ring);
+		ring->stopping = value;
+		ENA_RING_MTX_UNLOCK(ring);
+	}
+}
+
+static void
 ena_down(struct ena_adapter *adapter)
 {
 	int rc, i;
@@ -2632,6 +2667,8 @@ ena_down(struct ena_adapter *adapter)
 		adapter->up = false;
 		if_setdrvflagbits(adapter->ifp, IFF_OACTIVE,
 		    IFF_RUNNING);
+
+		ena_set_stopping_flag(adapter, true);
 
 		callout_halt(&adapter->timer_service, NULL);
 		for (i = 0; i < adapter->num_queues; i++) {
@@ -2918,6 +2955,7 @@ ena_start_xmit(struct ena_ring *tx_ring)
 
 	KASSERT(ENA_RING_MTX_OWNED(tx_ring));
 
+	/* ena_down() is waiting for completing */
 	if (unlikely((if_getdrvflags(adapter->ifp) & IFF_RUNNING) == 0))
 		return;
 
@@ -2958,6 +2996,7 @@ ena_start_xmit(struct ena_ring *tx_ring)
 			break;
 		}
 
+		/* ena_down is waiting for completing */
 		if (unlikely((if_getdrvflags(adapter->ifp) &
 		    IFF_RUNNING) == 0)) {
 			IF_STAT_PUTREF(adapter->ifp);
@@ -3006,6 +3045,10 @@ ena_deferred_mq_start(struct work *wk, void *arg)
 	while (pcq_peek(tx_ring->br) != NULL &&
 	    (if_getdrvflags(ifp) & IFF_RUNNING) != 0) {
 		ENA_RING_MTX_LOCK(tx_ring);
+		if (tx_ring->stopping) {
+			ENA_RING_MTX_UNLOCK(tx_ring);
+			return;
+		}
 		ena_start_xmit(tx_ring);
 		ENA_RING_MTX_UNLOCK(tx_ring);
 	}
@@ -3062,7 +3105,8 @@ ena_mq_start(struct ifnet *ifp, struct mbuf *m)
 	}
 
 	if ((is_drbr_empty != NULL) && (ENA_RING_MTX_TRYLOCK(tx_ring) != 0)) {
-		ena_start_xmit(tx_ring);
+		if (!tx_ring->stopping)
+			ena_start_xmit(tx_ring);
 		ENA_RING_MTX_UNLOCK(tx_ring);
 	} else {
 		if (atomic_cas_uint(&tx_ring->task_pending, 0, 1) == 0)
@@ -3588,9 +3632,15 @@ check_for_empty_rx_ring(struct ena_adapter *adapter)
 				device_printf(adapter->pdev,
 				    "trigger refill for ring %d\n", i);
 
+				ENA_RING_MTX_LOCK(rx_ring);
+				if (rx_ring->stopping) {
+					ENA_RING_MTX_UNLOCK(rx_ring);
+					return;
+				}
 				if (atomic_cas_uint(&rx_ring->task_pending, 0, 1) == 0)
 					workqueue_enqueue(rx_ring->cleanup_tq,
 					    &rx_ring->cleanup_task, curcpu());
+				ENA_RING_MTX_UNLOCK(rx_ring);
 				rx_ring->empty_rx_queue = 0;
 			}
 		} else {
@@ -3879,6 +3929,7 @@ ena_attach(device_t parent, device_t self, void *aux)
 
 	/* Tell the stack that the interface is not active */
 	if_setdrvflagbits(adapter->ifp, IFF_OACTIVE, IFF_RUNNING);
+	ena_set_stopping_flag(adapter, false);
 
 	adapter->running = true;
 	return;

@@ -223,8 +223,8 @@ struct ena_stats_rx {
  * + For TX, a field in ena_ring is protected by ring_mtx (a spin mutex).
  *   - protect them only when I/F is up.
  *   - when I/F is down or attaching, detaching, no need to protect them.
- * + For RX, any field in ena_ring is not protected.
- *   - all RX process is done in workqueue context, one CPU per one queue.
+ * + For RX, a field "stopping" is protected by ring_mtx (a spin mutex).
+ *   - other fields in ena_ring are not protected.
  * + a fields in ena_adapter is protected by global_mtx (a adaptive mutex).
  *
  * + a field marked "stable" is unlocked.
@@ -291,6 +291,7 @@ struct ena_ring {
 		};
 	};
 	u_int task_pending; /* atomic */
+	bool stopping;
 
 	union {
 		struct ena_stats_tx tx_stats;
