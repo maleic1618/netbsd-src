@@ -2052,7 +2052,7 @@ ena_request_io_irq(struct ena_adapter *adapter)
 		    adapter->sc_intrs[irq_slot], IPL_NET,
 		    ena_handle_msix, &adapter->que[i], intr_xname);
 
-		if (adapter->sc_ihs[ENA_MGMNT_IRQ_IDX] == NULL) {
+		if (vih == NULL) {
 			device_printf(adapter->pdev, "failed to register "
 			    "interrupt handler for IO queue %d irq %s\n",
 			    i, intrstr);
