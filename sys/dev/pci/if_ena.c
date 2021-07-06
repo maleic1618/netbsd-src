@@ -2593,7 +2593,7 @@ ena_down(struct ena_adapter *adapter)
 	if (adapter->up) {
 		device_printf(adapter->pdev, "device is going DOWN\n");
 
-		callout_halt(&adapter->timer_service, &adapter->global_mtx);
+		callout_halt(&adapter->timer_service, NULL);
 
 		adapter->up = false;
 		if_setdrvflagbits(adapter->ifp, IFF_OACTIVE,
@@ -3589,7 +3589,7 @@ ena_reset_task(struct work *wk, void *arg)
 
 	rw_enter(&adapter->ioctl_sx, RW_WRITER);
 
-	callout_halt(&adapter->timer_service, &adapter->global_mtx);
+	callout_halt(&adapter->timer_service, NULL);
 
 	dev_up = adapter->up;
 
@@ -3868,7 +3868,7 @@ ena_detach(device_t pdev, int flags)
 	}
 
 	/* Free reset task and callout */
-	callout_halt(&adapter->timer_service, &adapter->global_mtx);
+	callout_halt(&adapter->timer_service, NULL);
 	callout_destroy(&adapter->timer_service);
 	workqueue_wait(adapter->reset_tq, &adapter->reset_task);
 	workqueue_destroy(adapter->reset_tq);
