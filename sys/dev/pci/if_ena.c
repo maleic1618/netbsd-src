@@ -399,9 +399,10 @@ ena_change_mtu(struct ifnet *ifp, int new_mtu)
 	} while (0)
 
 static inline void
-ena_alloc_counters_rx(struct ena_stats_rx *st, int queue)
+ena_alloc_counters_rx(struct ena_adapter *adapter, struct ena_stats_rx *st, int queue)
 {
-	snprintf(st->name, sizeof(st->name), "ena rxq%d", queue);
+	snprintf(st->name, sizeof(st->name), "%s rxq%d",
+	    device_xname(adapter->pdev), queue);
 
 	EVCNT_INIT(st, cnt);
 	EVCNT_INIT(st, bytes);
@@ -420,9 +421,10 @@ ena_alloc_counters_rx(struct ena_stats_rx *st, int queue)
 }
 
 static inline void
-ena_alloc_counters_tx(struct ena_stats_tx *st, int queue)
+ena_alloc_counters_tx(struct ena_adapter *adapter, struct ena_stats_tx *st, int queue)
 {
-	snprintf(st->name, sizeof(st->name), "ena txq%d", queue);
+	snprintf(st->name, sizeof(st->name), "%s txq%d",
+	    device_xname(adapter->pdev), queue);
 
 	EVCNT_INIT(st, cnt);
 	EVCNT_INIT(st, bytes);
@@ -440,9 +442,10 @@ ena_alloc_counters_tx(struct ena_stats_tx *st, int queue)
 }
 
 static inline void
-ena_alloc_counters_dev(struct ena_stats_dev *st, int queue)
+ena_alloc_counters_dev(struct ena_adapter *adapter, struct ena_stats_dev *st, int queue)
 {
-	snprintf(st->name, sizeof(st->name), "ena dev ioq%d", queue);
+	snprintf(st->name, sizeof(st->name), "%s dev ioq%d",
+	    device_xname(adapter->pdev), queue);
 
 	EVCNT_INIT(st, wd_expired);
 	EVCNT_INIT(st, interface_up);
@@ -455,9 +458,10 @@ ena_alloc_counters_dev(struct ena_stats_dev *st, int queue)
 }
 
 static inline void
-ena_alloc_counters_hwstats(struct ena_hw_stats *st, int queue)
+ena_alloc_counters_hwstats(struct ena_adapter *adapter, struct ena_hw_stats *st, int queue)
 {
-	snprintf(st->name, sizeof(st->name), "ena hw ioq%d", queue);
+	snprintf(st->name, sizeof(st->name), "%s hw ioq%d",
+	    device_xname(adapter->pdev), queue);
 
 	EVCNT_INIT(st, rx_packets);
 	EVCNT_INIT(st, tx_packets);
@@ -529,7 +533,7 @@ ena_init_io_rings(struct ena_adapter *adapter)
 		    M_WAITOK, &txr->ring_mtx);
 
 		/* Alloc TX statistics. */
-		ena_alloc_counters_tx(&txr->tx_stats, i);
+		ena_alloc_counters_tx(adapter, &txr->tx_stats, i);
 
 		/* RX specific ring state */
 		rxr->ring_size = adapter->rx_ring_size;
@@ -537,7 +541,7 @@ ena_init_io_rings(struct ena_adapter *adapter)
 		    ena_com_get_nonadaptive_moderation_interval_rx(ena_dev);
 
 		/* Alloc RX statistics. */
-		ena_alloc_counters_rx(&rxr->rx_stats, i);
+		ena_alloc_counters_rx(adapter, &rxr->rx_stats, i);
 
 		/* Initialize locks */
 		snprintf(txr->mtx_name, sizeof(txr->mtx_name), "%s:tx(%d)",
@@ -3804,8 +3808,8 @@ ena_attach(device_t parent, device_t self, void *aux)
 	}
 
 	/* Initialize statistics */
-	ena_alloc_counters_dev(&adapter->dev_stats, io_queue_num);
-	ena_alloc_counters_hwstats(&adapter->hw_stats, io_queue_num);
+	ena_alloc_counters_dev(adapter, &adapter->dev_stats, io_queue_num);
+	ena_alloc_counters_hwstats(adapter, &adapter->hw_stats, io_queue_num);
 #if 0
 	ena_sysctl_add_nodes(adapter);
 #endif
