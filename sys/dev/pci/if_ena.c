@@ -286,8 +286,6 @@ ena_allocate_pci_resources(struct pci_attach_args *pa,
     struct ena_adapter *adapter)
 {
 	pcireg_t memtype, reg;
-	bus_addr_t memaddr;
-	bus_size_t mapsize;
 	int flags, error;
 	int msixoff;
 
@@ -311,7 +309,7 @@ ena_allocate_pci_resources(struct pci_attach_args *pa,
 
 	adapter->sc_btag = pa->pa_memt;
 	error = pci_mapreg_info(pa->pa_pc, pa->pa_tag, ENA_REG_BAR,
-	    memtype, &memaddr, &mapsize, &flags);
+	    memtype, &adapter->sc_memaddr, &adapter->sc_mapsize, &flags);
 	if (error) {
 		aprint_error_dev(adapter->pdev, "can't get map info\n");
 		return ENXIO;
@@ -328,11 +326,11 @@ ena_allocate_pci_resources(struct pci_attach_args *pa,
 		table_offset = msixtbl & PCI_MSIX_TBLOFFSET_MASK;
 		bir = msixtbl & PCI_MSIX_TBLBIR_MASK;
 		if (bir == PCI_MAPREG_NUM(ENA_REG_BAR))
-			mapsize = table_offset;
+			adapter->sc_mapsize = table_offset;
 	}
 
-	error = bus_space_map(adapter->sc_btag, memaddr, mapsize, flags,
-	    &adapter->sc_bhandle);
+	error = bus_space_map(adapter->sc_btag, adapter->sc_memaddr,
+	    adapter->sc_mapsize, flags, &adapter->sc_bhandle);
 	if (error != 0) {
 		aprint_error_dev(adapter->pdev,
 		    "can't map mem space (error=%d)\n", error);
@@ -345,7 +343,10 @@ ena_allocate_pci_resources(struct pci_attach_args *pa,
 static void
 ena_free_pci_resources(struct ena_adapter *adapter)
 {
-	/* Nothing to do */
+	if (adapter->sc_mapsize != 0) {
+		bus_space_unmap(adapter->sc_btag, adapter->sc_bhandle,
+		    adapter->sc_mapsize);
+	}
 }
 
 static int

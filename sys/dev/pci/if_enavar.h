@@ -324,6 +324,8 @@ struct ena_adapter {
 	/* Registers */
 	bus_space_handle_t sc_bhandle;
 	bus_space_tag_t	sc_btag;
+	bus_addr_t sc_memaddr;
+	bus_size_t sc_mapsize;
 
 	/* DMA tag used throughout the driver adapter for Tx and Rx */
 	bus_dma_tag_t sc_dmat;
