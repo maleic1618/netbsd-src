@@ -224,8 +224,7 @@ ena_dma_alloc(device_t dmadev, bus_size_t size,
 {
 	struct ena_adapter *adapter = device_private(dmadev);
 	uint32_t maxsize;
-	bus_dma_segment_t seg;
-	int error, nsegs;
+	int error;
 
 	maxsize = ((size - 1) / PAGE_SIZE + 1) * PAGE_SIZE;
 
@@ -245,7 +244,7 @@ ena_dma_alloc(device_t dmadev, bus_size_t size,
                 goto fail_create;
 	}
 
-	error = bus_dmamem_alloc(dma->tag, maxsize, 8, 0, &seg, 1, &nsegs,
+	error = bus_dmamem_alloc(dma->tag, maxsize, 8, 0, &dma->seg, 1, &dma->nseg,
 	    BUS_DMA_ALLOCNOW);
 	if (error) {
 		ena_trace(ENA_ALERT, "bus_dmamem_alloc(%ju) failed: %d\n",
@@ -253,7 +252,7 @@ ena_dma_alloc(device_t dmadev, bus_size_t size,
 		goto fail_alloc;
 	}
 
-	error = bus_dmamem_map(dma->tag, &seg, nsegs, maxsize,
+	error = bus_dmamem_map(dma->tag, &dma->seg, dma->nseg, maxsize,
 	    &dma->vaddr, BUS_DMA_COHERENT);
 	if (error) {
 		ena_trace(ENA_ALERT, "bus_dmamem_map(%ju) failed: %d\n",
@@ -275,7 +274,7 @@ ena_dma_alloc(device_t dmadev, bus_size_t size,
 fail_load:
 	bus_dmamem_unmap(dma->tag, dma->vaddr, maxsize);
 fail_map:
-	bus_dmamem_free(dma->tag, &seg, nsegs);
+	bus_dmamem_free(dma->tag, &dma->seg, dma->nseg);
 fail_alloc:
 	bus_dmamap_destroy(adapter->sc_dmat, dma->map);
 fail_create:
