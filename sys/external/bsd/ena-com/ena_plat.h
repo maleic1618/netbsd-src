@@ -312,9 +312,11 @@ int	ena_dma_alloc(device_t dmadev, bus_size_t size, ena_mem_handle_t *dma,
 #define ENA_MEM_FREE_COHERENT(dmadev, size, virt, phys, dma)		\
 	do {								\
 		(void)size;						\
+		size_t mapsize = (dma).map->dm_mapsize;			\
 		bus_dmamap_unload((dma).tag, (dma).map);		\
+		bus_dmamem_unmap((dma).tag, (dma).vaddr, mapsize);	\
 		bus_dmamem_free((dma).tag, &(dma).seg, (dma).nseg);	\
-		bus_dma_tag_destroy((dma).tag);	/* XXX remove */	\
+		bus_dmamap_destroy((dma).tag, (dma).map);		\
 		(dma).tag = NULL;					\
 		(virt) = NULL;						\
 	} while (0)
